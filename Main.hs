@@ -1,9 +1,13 @@
 module Main where
 
 import Control.Applicative (Alternative(..))
-import PredList  -- CHANGE THIS IMPORT FOR DIFFERENT DATATYPES
+
+-- *****************************************************************************
+-- CHANGE THIS IMPORT TO TOGGLE DIFFERENT DATATYPE IMPLEMENTATION
 -- import Pred
+import PredList
 -- import PredMaybe
+-- *****************************************************************************
 
 
 main :: IO ()
