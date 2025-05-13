@@ -6,12 +6,11 @@ module Main where
 
 import Control.Applicative (Alternative(..))
 import Data.Maybe (fromJust)
-import Data.Word (Word64)
-import qualified Data.SBV as SBV
+import Data.SBV as SBV
 import qualified Data.SBV.List as SBV
 import System.IO.Unsafe (unsafePerformIO)
 import Uninterpret
-import Utils
+-- import Utils
 
 -- *****************************************************************************
 -- CHANGE THIS IMPORT TO TOGGLE DIFFERENT DATATYPE IMPLEMENTATION
@@ -56,6 +55,20 @@ main = do
     , Ex $ clz_2 [False, False, False, True, False, False]
     ]
 
+  dispExs "sat_u forward function direction"
+    [ Ex $ sat_u_1_2 8 (-20)
+    , Ex $ sat_u_1_2 8 0
+    , Ex $ sat_u_1_2 8 200
+    , Ex $ sat_u_1_2 8 4000
+    ]
+  
+  dispExs "sat_u function inverse direction"
+    [ Ex $ sat_u_1_3 8 0
+    , Ex $ sat_u_1_3 8 100
+    , Ex $ sat_u_1_3 8 255
+    , Ex $ sat_u_1_3 8 1000
+    ]
+
 
 -- /////////////////////////////////////////////////////////////////////////////
 -- Utils
@@ -75,6 +88,7 @@ divLine :: IO ()
 divLine = putStrLn $ replicate 80 '-'
 
 
+type Nat = Integer
 
 -- /////////////////////////////////////////////////////////////////////////////
 -- `append` example from the Isabelle animation paper
@@ -137,7 +151,7 @@ append_1_2' xs ys =
   pure (xs, ys) >>= \case
     (xs', ys') -> pure $ xs' ++ ys'
 
-append_1_3' :: (SBV.SymVal a, Eq a) => [a] -> [a] -> Pred [a]
+append_1_3' :: (SymVal a, Eq a) => [a] -> [a] -> Pred [a]
 {-
 append_1_3' xs zs =
   pure (xs, zs) >>= \case
@@ -150,18 +164,18 @@ append_1_3' xs zs =
 
   where
     {- zs = xs @ ys -}
-    anim_p1_1 :: forall a. (SBV.SymVal a, Eq a) => [a] -> [a] -> Pred [a]
+    anim_p1_1 :: forall a. (SymVal a, Eq a) => [a] -> [a] -> Pred [a]
     anim_p1_1 xs zs = unsafePerformIO (go xs zs)
       where
-        go :: forall a. (SBV.SymVal a, Eq a) => [a] -> [a] -> IO (Pred [a])
+        go :: forall a. (SymVal a, Eq a) => [a] -> [a] -> IO (Pred [a])
         go xs zs = do
-          let c = do ys <- SBV.sList "ys"
-                     return $ (SBV.literal xs) SBV.++ ys SBV..== (SBV.literal zs)
-          model <- SBV.sat c
-          let mys :: Maybe [a] = SBV.getModelValue "ys" model
+          let c = do ys <- sList "ys"
+                     return $ (literal xs) SBV.++ ys .== (literal zs)
+          model <- sat c
+          let mys :: Maybe [a] = getModelValue "ys" model
           return $ case mys of
                      Just ys -> pure ys
-                     Nothing -> empty 
+                     Nothing -> empty
 
 
 -- /////////////////////////////////////////////////////////////////////////////
@@ -182,7 +196,6 @@ Inductive baz : nat -> myType -> string -> Prop :=
 
 -}
 
-type Nat = Int
 
 data MyType where
   MyCr2 :: Nat -> MyType
@@ -260,17 +273,17 @@ foo_1_4 s b =
       where
         go :: String -> Nat -> IO (Pred (Nat, String))
         go s b = do
-          let c = do let mycr1 = SBV.uninterpret "mycr1" :: SBV.SString -> SBV.SWord64 -> SBV.SBV MyTypeT
-                         mycr4 = SBV.uninterpret "mycr4" :: SBV.SString -> SBV.SWord64 -> SBV.SBV MyTypeT
-                     SBV.constrain $ \(SBV.Forall s) (SBV.Forall t) (SBV.Forall a) (SBV.Forall b) ->
-                                       mycr1 s a SBV../= mycr4 t b
-                     t <- SBV.sString "t"
-                     a <- SBV.sWord64 "a"
-                     return $ mycr1 (SBV.literal s) a SBV..== mycr4 t (SBV.literal (fromIntegral b))
-          model <- SBV.sat c
-          if SBV.modelExists model
-            then let t :: Maybe String = SBV.getModelValue "t" model
-                     a :: Maybe Nat = fromIntegral <$> (SBV.getModelValue "a" model :: Maybe Word64)
+          let c = do let mycr1 = uninterpret "mycr1" :: SString -> SWord64 -> SBV MyTypeT
+                         mycr4 = uninterpret "mycr4" :: SString -> SWord64 -> SBV MyTypeT
+                     constrain $ \(Forall s) (Forall t) (Forall a) (Forall b) ->
+                                       mycr1 s a ./= mycr4 t b
+                     t <- sString "t"
+                     a <- sWord64 "a"
+                     return $ mycr1 (literal s) a .== mycr4 t (literal (fromIntegral b))
+          model <- sat c
+          if modelExists model
+            then let t :: Maybe String = getModelValue "t" model
+                     a :: Maybe Nat = fromIntegral <$> (getModelValue "a" model :: Maybe Word64)
                   in return $ pure (fromJust a, fromJust t)
             else return empty
 
@@ -302,15 +315,15 @@ clz_2 bs =
       where
         go :: [Bool] -> IO (Pred Nat)
         go bs = do
-          let c = do k <- SBV.sInteger "k"
-                     let bs' = SBV.literal bs
-                     SBV.constrain $ k SBV..== SBV.length bs'
-                     return $ \(SBV.Forall i) -> i `SBV.inRange` (0, k - 1) SBV..=>
-                       bs' `SBV.elemAt` i SBV..== SBV.sFalse
-          model <- SBV.sat c
-          if SBV.modelExists model
-            then let k :: Maybe Integer = SBV.getModelValue "k" model
-                  in return $ pure (fromIntegral $ fromJust k)
+          let c = do k <- sInteger "k"
+                     let bs' = literal bs
+                     constrain $ k .== SBV.length bs'
+                     return $ \(Forall i) -> i `inRange` (0, k - 1) .=>
+                       bs' `SBV.elemAt` i .== sFalse
+          model <- sat c
+          if modelExists model
+            then let k :: Integer = fromJust $ getModelValue "k" model
+                  in return $ pure k
             else return empty
 
     -- bs = replicate k false @ [true] @ bs'
@@ -319,16 +332,96 @@ clz_2 bs =
       where
         go :: [Bool] -> IO (Pred Nat)
         go bs = do
-          let c = do k <- SBV.sInteger "k"
-                     let bs' = SBV.literal bs
-                     SBV.constrain $ k `SBV.inRange` (0, SBV.length bs' - 1)
+          let c = do k <- sInteger "k"
+                     let bs' = literal bs
+                     constrain $ k `inRange` (0, SBV.length bs' - 1)
                      return $
-                       SBV.quantifiedBool (\(SBV.Forall i) -> i `SBV.inRange` (0, k - 1) SBV..=>
-                          bs' `SBV.elemAt` i SBV..== SBV.sFalse) SBV..&&
-                       (bs' `SBV.elemAt` k SBV..== SBV.sTrue)
-          model <- SBV.sat c
-          if SBV.modelExists model
-            then let k :: Maybe Integer = SBV.getModelValue "k" model
-                  in return $ pure (fromIntegral $ fromJust k)
+                       quantifiedBool (\(Forall i) -> i `inRange` (0, k - 1) .=>
+                          bs' `SBV.elemAt` i .== sFalse) .&&
+                       (bs' `SBV.elemAt` k .== sTrue)
+          model <- sat c
+          if modelExists model
+            then let k :: Integer = fromJust $ getModelValue "k" model
+                  in return $ pure k
+            else return empty
+
+
+-- /////////////////////////////////////////////////////////////////////////////
+-- `sat_u` from SpecTec, with inequality premises
+
+{- [Isabelle]
+
+inductive sat_u :: "nat ⇒ int ⇒ nat ⇒ bool" where
+  "i < 0 ⟹ sat_u N i 0" |
+  "i > 2^N - 1 ⟹ sat_u N i (2^N - 1)" |
+  "i ≥ 0 ⟹ i ≤ 2^N - 1 ⟹ sat_u N i (nat i)"
+
+-}
+
+sat_u_1_2 :: Nat -> Integer -> Pred Nat
+sat_u_1_2 _N i =
+  (pure (_N, i) >>= \case
+    (_N', i') | i' < 0 -> pure 0
+    _ -> empty) <|>
+  (pure (_N, i) >>= \case
+    (_N', i') | i' > 2 ^ _N' - 1 -> pure (2 ^ _N' - 1)
+    _ -> empty) <|>
+  (pure (_N, i) >>= \case
+    (_N', i') | i' >= 0, i <= 2 ^ _N' - 1 -> pure i'
+    _ -> empty)
+
+sat_u_1_3 :: Nat -> Nat -> Pred Integer
+sat_u_1_3 _N n =
+  (pure (_N, n) >>= \case
+    (_N', 0) -> anim_p1_1
+    _ -> empty) <|>
+  (pure (_N, n) >>= \(_N', n') -> anim_p2_1 _N' n') <|>
+  (pure (_N, n) >>= \(_N', n') -> anim_p3_1 _N' n')
+
+  where
+    anim_p1_1 :: Pred Integer
+    anim_p1_1 = unsafePerformIO go
+      where
+        go :: IO (Pred Integer)
+        go = do let c = do i <- sInteger "i"
+                           return $ i .< 0
+                model <- sat c
+                if modelExists model
+                  then let i :: Integer = fromJust $ getModelValue "i" model
+                        in return $ pure i
+                  else return empty
+
+    anim_p2_1 :: Nat -> Nat -> Pred Integer
+    anim_p2_1 _N n = unsafePerformIO $ go _N n
+      where
+        go :: Nat -> Nat -> IO (Pred Integer)
+        go _N n = do
+          let c = do let _N' = literal _N
+                         n' = literal n
+                     i <- sInteger "i"
+                     constrain $ _N' .>= 0
+                     constrain $ n' .>= 0
+                     return $ (i .> 2 .^ _N' - 1) .&& (n' .== 2 .^ _N' - 1)
+          model <- sat c
+          if modelExists model
+            then let i :: Integer = fromJust $ getModelValue "i" model
+                  in return $ pure i
+            else return empty
+
+    anim_p3_1 :: Nat -> Nat -> Pred Integer
+    anim_p3_1 _N n = unsafePerformIO $ go _N n
+      where
+        go :: Nat -> Nat -> IO (Pred Integer)
+        go _N n = do
+          let c = do let _N' = literal _N
+                         n' = literal n
+                     i <- sInteger "i"
+                     constrain $ _N' .>= 0
+                     constrain $ n' .>= 0
+                     return $ (i .>= 0) .&& (i .<= 2 .^ _N' - 1) .&& (n' .== i)
+          model <- sat c
+          if modelExists model
+            then let i :: Integer = fromJust $ getModelValue "i" model
+                  in return $ pure i
             else return empty
 

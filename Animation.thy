@@ -28,4 +28,10 @@ inductive clz' :: "nat \<Rightarrow> bool list \<Rightarrow> bool" where
   "bs = replicate k false @ [true] @ bs' \<Longrightarrow> clz' k bs"
 
 
+inductive sat_u :: "nat \<Rightarrow> int \<Rightarrow> nat \<Rightarrow> bool" where
+  "i < 0 \<Longrightarrow> sat_u N i 0" |
+  "i > 2^N - 1 \<Longrightarrow> sat_u N i (2^N - 1)" |
+  "i \<ge> 0 \<Longrightarrow> i \<le> 2^N - 1 \<Longrightarrow> sat_u N i (nat i)"
+
+
 end
