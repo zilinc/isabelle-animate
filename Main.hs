@@ -1,16 +1,18 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Main where
 
 import Control.Applicative (Alternative(..))
+import Data.Coerce
 import Data.Maybe (fromJust)
 import Data.SBV as SBV
 import qualified Data.SBV.List as SBV
 import System.IO.Unsafe (unsafePerformIO)
 import Uninterpret
--- import Utils
+import Utils
 
 -- *****************************************************************************
 -- CHANGE THIS IMPORT TO TOGGLE DIFFERENT DATATYPE IMPLEMENTATION
@@ -68,7 +70,6 @@ main = do
     , Ex $ sat_u_1_3 8 255
     , Ex $ sat_u_1_3 8 1000
     ]
-
 
 -- /////////////////////////////////////////////////////////////////////////////
 -- Utils
@@ -370,6 +371,9 @@ sat_u_1_2 _N i =
     (_N', i') | i' >= 0, i <= 2 ^ _N' - 1 -> pure i'
     _ -> empty)
 
+
+-- A good thing about this structure is that we can get a result from each case
+-- in the top-level pattern matching.
 sat_u_1_3 :: Nat -> Nat -> Pred Integer
 sat_u_1_3 _N n =
   (pure (_N, n) >>= \case
@@ -424,4 +428,150 @@ sat_u_1_3 _N n =
             then let i :: Integer = fromJust $ getModelValue "i" model
                   in return $ pure i
             else return empty
+
+-- /////////////////////////////////////////////////////////////////////////////
+-- ibits and ishr_u, with function calls as premises.
+
+{- [Isabelle]
+
+inductive zip_ind :: "'a list ⇒ 'b list ⇒ ('a × 'b) list ⇒ bool" where
+  "zip_ind [] _ []" |
+  "zip_ind _ [] []" |
+  "zip_ind xs ys zs ⟹ zip_ind (x#xs) (y#ys) ((x,y)#zs)"
+
+inductive fold_ind :: "('a ⇒ 'b ⇒ 'b) ⇒ 'a list ⇒ 'b ⇒ 'b ⇒ bool" where
+  "fold_ind f [] acc0 acc0" |
+  "fold_ind f xs (f x acc0) res ⟹ fold_ind f (x # xs) acc0 res"
+
+inductive fold_ind' :: "('a ⇒ 'b ⇒ 'b) ⇒ 'a list ⇒ 'b ⇒ 'b ⇒ bool" where
+  "fold_ind' f [] acc0 acc0" |
+  "xs' = xs@[x] ⟹ res = f x res' ⟹ fold_ind' f xs acc res' ⟹ fold_ind' f xs' acc res"
+
+inductive ibits :: "nat ⇒ int ⇒ bool list ⇒ bool" where
+  "is = reverse [0 .. (int N-1)] ⟹
+   ids = zip is ds ⟹
+   i = fold (λ(idx, d) acc. (if d then acc + 2^idx else acc)) ids 0 ⟹
+   ibits N i ds"
+
+(* Imagine the big sum was primitive *)
+inductive ibits' :: "nat ⇒ int ⇒ bool list ⇒ bool" where
+  "i = 2^(N-1) * ds[N-1] + ... + 1^0 * ds[0] ⟹ ibits' N i ds"
+
+inductive ishr_u :: "nat ⇒ int ⇒ nat ⇒ int ⇒ bool" where
+  "i2 ≤ 2^N - 1 ⟹
+   ibits N i1 ((replicate (N - k) d1) @ (replicate k d2)) ⟹
+   k = i2 mod N ⟹
+   ibits N n (replicate k False @ replicate (N - k) d1) ⟹
+   ishr_u N i1 i2 n"
+
+-}
+
+zip_ind_1_3 :: (Eq a) => [a] -> [(a, b)] -> Pred [b]
+zip_ind_1_3 xs zs =
+  (pure (xs, zs) >>= \case
+    ([], []) -> pure []  -- We can't return anything _. We have to restrict to [].
+                         -- So it is incomplete.
+    _ -> empty) <|>
+  (pure (xs, zs) >>= \case
+    (_, []) -> pure []
+    _ -> empty) <|>
+  (pure (xs, zs) >>= \case
+    (x:xs', (x',y):zs') | x == x' -> zip_ind_1_3 xs' zs' >>= \ys -> pure (y:ys)
+    _ -> empty)
+
+-- fold_ind_1_3_4 is not a consistent mode
+fold_ind_1_3_4 :: (Eq b) => (a -> b -> b) -> b -> b -> Pred [a]
+fold_ind_1_3_4 f acc0 res =
+  (pure (f, acc0, res) >>= \case
+    (f', acc0', res') | acc0' == res' -> pure []
+    _ -> empty) <|>
+  (pure (f, acc0, res) >>= \case
+    (f', acc0', res') -> __can't_implement "fold_ind_1_3_4")
+
+fold_ind_1_4 :: (a -> b -> b) -> b -> Pred ([a], b)
+fold_ind_1_4 f res =
+  (pure (f, res) >>= \case
+    (f', res') -> pure ([], res')) <|>
+  (pure (f, res) >>= \case
+    (f', res') -> __can't_implement "fold_ind_1_4")
+
+fold_ind'_1_3_4 :: (Eq b) => (a -> b -> b) -> b -> b -> Pred [a]
+fold_ind'_1_3_4 f acc0 res =
+  (pure (f, acc0, res) >>= \case
+    (f', acc0', res') | acc0' == res' -> pure []
+    _ -> empty) <|>
+  (pure (f, acc0, res) >>= \case
+    (f', acc0', res') -> __can't_implement "fold_ind'_1_3_4")
+
+ibits_1_2 :: Nat -> Integer -> Pred [Bool]
+ibits_1_2 _N i =
+  pure (_N, i) >>= \(_N', i') ->
+  anim_p3_1 i' >>= \ids ->
+  anim_p1_2 _N >>= \is ->
+  anim_p2_1_2 ids is
+
+  where
+    anim_p3_1 :: Integer -> Pred [(Nat, Bool)]
+    anim_p3_1 i = undefined
+
+    anim_p2_1_2 :: [(Nat, Bool)] -> [Nat] -> Pred [Bool]
+    anim_p2_1_2 ids is = zip_ind_1_3 is ids
+
+    anim_p1_2 :: Nat -> Pred [Nat]
+    anim_p1_2 _N = pure $ reverse [0 .. _N]
+
+ibits'_1_2 :: Nat -> Integer -> Pred [Bool]
+ibits'_1_2 _N i =
+  pure (_N, i) >>= \(_N', i') -> anim_p1_1 _N' i'
+
+  where
+    anim_p1_1 :: Nat -> Integer -> Pred [Bool]
+    anim_p1_1 _N i = unsafePerformIO $ go _N i
+      where
+        go :: Nat -> Integer -> IO (Pred [Bool])
+        go _N i = do
+          let c = do let _N' = literal _N
+                         i'  = literal i
+                     ds :: SList Bool <- sList "ds"
+                     constrain $ _N' .>= 0
+                     constrain $ SBV.length ds .== _N'
+                     -- SBV doesn't support it.
+                     return $ i' .== SBV.foldr (\k acc -> ite (ds SBV.!! k) (2 .^ (sFromIntegral k :: SWord8)) 0 + acc)
+                                               0
+                                               (literal (reverse [0 .. _N - 1]))
+          model <- sat c
+          if modelExists model
+            then let ds :: [Bool] = fromJust $ getModelValue "ds" model
+                  in return $ pure ds
+            else return empty
+
+ishr_u_1_2_3 :: Nat -> Integer -> Nat -> Pred Integer
+ishr_u_1_2_3 _N i1 i2 =
+  pure (_N, i1, i2) >>= \case
+    (_N', i1', i2') -> anim_p1_1_2_3_4 _N' i1' i2'
+
+  where
+    anim_p1_1_2_3_4 :: Nat -> Integer -> Nat -> Pred Integer
+    anim_p1_1_2_3_4 _N i1 i2 = unsafePerformIO $ go _N i1 i2
+      where
+        go :: Nat -> Integer -> Nat -> IO (Pred Integer)
+        go _N i1 i2 = do
+          let c = do k <- sInteger "k"
+                     constrain $ k .>= 0
+                     let _N' = literal _N
+                         i1' = literal i1
+                         i2' = literal i2
+                     constrain $ _N' .>= 0
+                     constrain $ i2' .>= 0
+                     let c1 = i2' .<= 2 .^ _N' - 1
+                         c2 = undefined
+                         c3 = k .== i2' `sMod` _N'
+                         c4 = undefined
+                     return $ sAnd [c1,c2,c3,c4]
+          model <- sat c
+          if modelExists model
+            then let n :: Integer = fromJust $ getModelValue "n" model
+                  in return $ pure n
+            else return empty
+
 

@@ -57,3 +57,15 @@ member Empty _ = False
 member (Insert y yq) x = x == y || eval yq x
 member (Union xqs) x = any (flip eval x) xqs
 
+next :: Pred a -> Maybe (a, Pred a)
+next (Seq f) =
+  case f of
+    Empty -> Nothing
+    Insert x xq -> Just (x, xq)
+    Union xqs -> nexts xqs
+  where
+    nexts [] = Nothing
+    nexts (xq:xqs) = case next xq of
+                       Nothing -> nexts xqs
+                       Just (x, xq') -> Just (x, Seq (Union (xq':xqs)))
+

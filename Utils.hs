@@ -8,6 +8,9 @@ import Control.Monad (unless)
 __impossible :: String -> a
 __impossible msg = error $ msg ++ ": the 'impossible' happened!"
 
+__can't_implement :: String -> a
+__can't_implement msg = error $ msg ++ ": this cannot be implemented!"
+
 __exhaustivity :: String -> a
 __exhaustivity msg = error $ msg ++ ": `otherwise' is not used for clarity, so GHC doesn't know the guards are exhaustive"
 
